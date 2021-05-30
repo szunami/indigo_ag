@@ -1,10 +1,11 @@
 from flask import Flask, request
 from datetime import datetime, timedelta
+from collections import defaultdict
 
 app = Flask(__name__)
 window = timedelta(hours=1)
-cached_sums = {}
-raw_values = {}
+cached_sums = defaultdict(int)
+raw_values = defaultdict(list)
 
 
 @app.route('/metric/<key>', methods=['POST'])
@@ -16,13 +17,8 @@ def store_metric(key):
     value = request.json['value']
     now = datetime.now()
 
-    if key in cached_sums:
-        cached_sums[key] += value
-        raw_values[key].append((now, value))
-    else:
-        # data race could occur here!
-        cached_sums[key] = value
-        raw_values[key] = [(now, value)]
+    cached_sums[key] += value
+    raw_values[key].append((now, value))
 
     return {}
 
@@ -30,18 +26,15 @@ def store_metric(key):
 @app.route('/metric/<key>/sum', methods=['GET'])
 def sum(key):
     now = datetime.now()
-    if key in cached_sums:
-        i = 0
-        while i < len(raw_values[key]):
-            time, value = raw_values[key][i]
-            if now - time > window:
-                cached_sums[key] -= value
-                i += 1
-            else:
-                break
+    i = 0
+    while i < len(raw_values[key]):
+        time, value = raw_values[key][i]
+        if now - time > window:
+            cached_sums[key] -= value
+            i += 1
+        else:
+            break
 
-        raw_values[key] = raw_values[key][i:]
+    raw_values[key] = raw_values[key][i:]
 
-        return {'value': cached_sums[key]}
-    else:
-        return {'value': 0}
+    return {'value': cached_sums[key]}
