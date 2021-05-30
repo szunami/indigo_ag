@@ -1,57 +1,47 @@
 from flask import Flask, request
 from datetime import datetime, timedelta
-import asyncio
 
 app = Flask(__name__)
-
-"""
-want to store time, value for each metric
-need to purge times that are > WINDOW away
-
-can purge on write -> could slow down write
-can purge on read -> could slow down read
-can purge in a background process -> how do we trigger this?
-
-can use timeouts / async
-
-generate a key based on timestamp
-await WINDOW
-delete key
-
-
-"""
-
 window = timedelta(hours=1)
+cached_sums = {}
+raw_values = {}
 
-sum_data = {}
 
-
-@app.route("/metric/<key>", methods=['POST'])
+@app.route('/metric/<key>', methods=['POST'])
 def store_metric(key):
 
-    value = request.json['value']
+    if not 'value' in request.json:
+        return 'Malformed input', 400
 
+    value = request.json['value']
     now = datetime.now()
 
-    if key in sum_data:
-        sum_data[key].append((now, value))
+    if key in cached_sums:
+        cached_sums[key] += value
+        raw_values[key].append((now, value))
     else:
         # data race could occur here!
-        sum_data[key] = [(now, value)]
+        cached_sums[key] = value
+        raw_values[key] = [(now, value)]
 
     return {}
 
 
-@app.route("/metric/<key>/sum", methods=['GET'])
+@app.route('/metric/<key>/sum', methods=['GET'])
 def sum(key):
     now = datetime.now()
-    if key in sum_data:
-        sum = 0
-        for (time, value) in sum_data[key]:
-            if now - time <= window:
-                sum += value
-            else: print("Excluding b/c too long ago")
-            
-        return {"value": sum}
+    if key in cached_sums:
+        i = 0
+        while i < len(raw_values[key]):
+            time, value = raw_values[key][i]
+            if now - time > window:
+                cached_sums[key] -= value
+                i += 1
+            else:
+                break
+
+        raw_values[key] = raw_values[key][i:]
+
+        return {'value': cached_sums[key]}
     else:
-        return {"value": 0}
+        return {'value': 0}

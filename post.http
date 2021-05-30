@@ -1,6 +1,6 @@
-POST http://127.0.0.1:5000/metric/asdf
+POST http://127.0.0.1:5000/metric/123
 content-type: application/json
 
 {
-  "value": 300
+  "value": 150
 }
